@@ -4,14 +4,38 @@ class ElementWrapper {
   }
 
   setAttribute(name, value) {
-    this.root.setAttribute(name, value)
+    let attributeName = name
+
+    if (attributeName === 'className') {
+      attributeName = 'class'
+    }
+
+    if (name.match(/^on([\s\S]+)$/)) {
+      this.root.addEventListener(
+        RegExp.$1.replace(/^[\s\S]/, (c) => c.toLowerCase()),
+        value
+      )
+    } else {
+      this.root.setAttribute(attributeName, value)
+    }
   }
 
   appendChild(vChild) {
-    vChild.mountTo(this.root)
+    let range = document.createRange()
+
+    if (this.root.children.length) {
+      range.setStartAfter(this.root.lastChild)
+      range.setEndAfter(this.root.lastChild)
+    } else {
+      range.setStart(this.root, 0)
+      range.setEnd(this.root, 0)
+    }
+
+    vChild.mountTo(range)
   }
-  mountTo(parent) {
-    parent.appendChild(this.root)
+  mountTo(range) {
+    range.deleteContents()
+    range.insertNode(this.root)
   }
 }
 
@@ -20,42 +44,91 @@ class TextWrapper {
     this.root = document.createTextNode(type)
   }
 
-  mountTo(parent) {
-    parent.appendChild(this.root)
+  mountTo(range) {
+    range.deleteContents()
+    range.insertNode(this.root)
   }
 }
 
 export class Component {
   constructor() {
     this.children = []
+    this.props = Object.create(null)
   }
 
   setAttribute(name, value) {
-    this[name] = value
+    this.props[name] = value
+
+    if (name === 'className') {
+      this.class = value
+    } else if (name.match(/^on[\s\S]+/)) {
+      console.log(1)
+    } else {
+      this[name] = value
+    }
   }
 
-  mountTo(parent) {
+  mountTo(range) {
+    this.range = range
+    this.update()
+  }
+
+  update() {
+    const placeholder = document.createComment('placeholder')
+    const range = document.createRange()
+    range.setStart(this.range.endContainer, this.range.endOffset)
+    range.setEnd(this.range.endContainer, this.range.endOffset)
+    range.insertNode(placeholder)
+
+    this.range.deleteContents()
+
     let vDom = this.render()
-    vDom.mountTo(parent)
+    vDom.mountTo(this.range)
+
+    // placeholder.parentNode.removeChild(placeholder)
   }
 
   appendChild(vChild) {
     this.children.push(vChild)
   }
+
+  setState(state) {
+    let merge = (prevState, newState) => {
+      for (let key in newState) {
+        if (Object.hasOwnProperty.call(newState, key)) {
+          if (typeof newState[key] === 'object') {
+            if (typeof prevState !== 'object') {
+              prevState[key] = {}
+            }
+
+            merge(prevState[key], newState[key])
+          } else {
+            prevState[key] = newState[key]
+          }
+        }
+      }
+    }
+
+    if (!this.state && state) {
+      this.state = {}
+    }
+
+    merge(this.state, state)
+
+    this.update()
+  }
 }
 
 export const ToyReact = {
   createElement(type, attributes, ...children) {
-    console.log(arguments)
     let element
-    
+
     if (typeof type === 'string') {
       element = new ElementWrapper(type)
     } else {
+      // prettier-ignore
       element = new type
     }
-
-    // const element = document.createElement(type)
 
     if (attributes) {
       Object.entries(attributes).forEach(([name, value]) => {
@@ -70,13 +143,16 @@ export const ToyReact = {
         if (Array.isArray(child)) {
           insertChildren(child)
         } else {
-          if (!(child instanceof Component 
-            || child instanceof ElementWrapper 
-            || child instanceof TextWrapper
-          )) {
-            newChild = String(child) 
+          if (
+            !(
+              child instanceof Component ||
+              child instanceof ElementWrapper ||
+              child instanceof TextWrapper
+            )
+          ) {
+            newChild = String(child)
           }
-          
+
           if (typeof newChild === 'string') {
             newChild = new TextWrapper(child)
           }
@@ -92,6 +168,16 @@ export const ToyReact = {
   },
 
   render(vDom, element) {
-    vDom.mountTo(element)
+    let range = document.createRange()
+
+    if (element.children) {
+      range.setStartAfter(element.lastChild)
+      range.setEndAfter(element.lastChild)
+    } else {
+      range.setStart(element, 0)
+      range.setEnd(element, 0)
+    }
+
+    vDom.mountTo(range)
   },
 }
